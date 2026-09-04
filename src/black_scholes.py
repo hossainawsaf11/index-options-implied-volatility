@@ -39,3 +39,32 @@ print("Vol 0.40:", bs_price(F, K, T, r, 0.40, True))
 F, K, T, r, sigma = 110, 100, 0.00001, 0.04, 0.20
 print("Call at expiry:", bs_price(F, K, T, r, sigma, True), "expect ~10")
 print("Put at expiry:", bs_price(F, K, T, r, sigma, False), "expect ~0")
+
+def bs_vega(F, K, T, r, sigma):
+    """Senisitivity of the option price to changes in volatility. It is the same for calls and puts. It's always positive."""
+
+    d1 = (np.log(F/K) + (sigma**2)*T/2) / (sigma*np.sqrt(T))
+
+    vega = (np.exp(-r*T))*F*(norm.pdf(d1))*(np.sqrt(T))
+
+    return vega
+
+#Test
+F = 100
+K = 100
+T = 1
+r = 0.04
+sigma = 0.2
+h = 0.0001
+
+vega_analytic = bs_vega(F, K, T, r, sigma)
+
+price_up = bs_price(F, K, T, r, sigma + h, is_call=True)
+
+price_down = bs_price(F, K, T, r, sigma - h, is_call=True)
+
+vega_numeric = (price_up-price_down)/(2*h)
+
+print("Vega analytic:", vega_analytic)
+print("Vega numeric:", vega_numeric)
+print("Vega Match:", np.isclose(vega_analytic, vega_numeric, rtol=1e-4))
