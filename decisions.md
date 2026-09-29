@@ -106,3 +106,68 @@ Two consequences I need to handle rather than discover later:
 into the SQL and run server-side. Pulling the table and filtering in pandas is
 not an option at this size.
 
+## 26 Sept 2026 - One-day pull, forwards, and where filtering happens
+
+**Correction to 23 Sep.** The 23 Sep entry says forward_price is supplied as
+a column. It is not: on 13 Mar 2024, 0 of 21,956 SPX rows in opprcd2024 had a
+value. The pricer design is unaffected, since it takes F as an input. What
+changes is where F comes from.
+
+**One-day sample.** Pulled all columns for SPX on 13 Mar 2024, an ordinary
+Wednesday: 21,956 rows, 26 columns, 53 expiry dates. Dates arrive as strings
+and need parsing. Saved to data/ as Parquet so inspection does not re-query
+WRDS.
+
+**Two products under one secid.** 6,790 rows are AM-settled SPX and 15,166
+are PM-settled SPXW. On five dates both expire. Their time to expiry differs,
+so each (expiry, settlement) pair is treated as its own maturity, and the rule
+for dates where both exist becomes a named filter.
+
+**Vendor forward table.** Forwards live in optionm.fwdprd<year>, keyed by
+expiration and amsettlement. They rise by a constant 0.564 points per calendar
+day, so they are model forwards (spot grown at a smooth carry of about 4%),
+not market-implied. An AM expiry gets the previous day's PM forward, i.e. it
+is treated as expiring at the prior close. The table includes same-day expiries,
+which need a days-to-expiry filter.
+
+**Plan.** Primary forward is market-implied, from put-call parity.
+fwdprd is the independent cross-check.
+
+**Where filtering happens.** Refines the 23 Sep query rule. The 381M rows are
+the whole of opprcd2024 across all securities. Cutting by secid and year on
+the server leaves about 5.9M SPX rows and 77k EWC rows, which fit in memory.
+So the coarse cut runs in SQL during the pull, and the quality filters run
+locally on the Parquet, each a separate named function. Why not all in SQL:
+the per-filter log would need a COUNT query per step, and every threshold
+change would mean re-querying WRDS.
+
+## 28 Sep 2026 - Forward join, pricer tests, first parity forward
+
+**Join audit.** Matched option expiries to fwdprd on (expiry, settlement) for
+13 Mar 2024: 58 of 58 keys match, none missing on either side. The 53 vs 58
+gap is five dates carrying both an AM and a PM expiry.
+
+**Pricer cleanup.** Deleted a root copy of black_scholes.py after diff showed
+it byte-identical to src/. Moved the four checks into
+tests/test_black_scholes.py as assert-based pytest tests: 4 passed.
+Tolerances: rtol 1e-4 on the call at expiry (it is still discounted), atol on
+the put (a relative tolerance is meaningless at zero), rtol 1e-8 on vega
+because central-difference error is order h^2 = 1e-8, so a tighter claim would
+pass only by luck. This corrects the earlier "ten significant figures" claim.
+
+**Parity forward method.** C - P = D(F - K) is linear in K, so regress C - P
+on K across strikes: slope = -D, intercept = D*F. No rate input needed. Mid
+prices, bid above zero, strikes within 5% of spot.
+
+**First result, 19 Apr 2024 PM (37 days).** 95 strike pairs. D = 0.99446,
+implied r = 5.48%. Parity forward 5194.34 vs fwdprd 5186.31, a gap of 8.0
+points (about 15 bp). The gap implies near-zero dividends, which is
+implausible for SPX. 
+
+Leading hypothesis: non-synchronous closes, since the
+index closes at 4:00 pm and SPX options trade until 4:15 pm. 
+
+Test: a timing
+effect gives a roughly constant gap in bp across expiries, while a dividend
+error grows with maturity. 
+
