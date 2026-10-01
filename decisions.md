@@ -171,3 +171,25 @@ Test: a timing
 effect gives a roughly constant gap in bp across expiries, while a dividend
 error grows with maturity. 
 
+## 1 Oct 2026 - Parity forwards across all expiries
+
+Ran the parity regression (C - P on K, strikes within 5% of spot, bid above
+zero, at least 5 strike pairs) on all 58 (expiry, settlement) pairs for
+13 Mar 2024, and compared against fwdprd.
+
+Neither single hypothesis fits. The gap is about 5 bp at 1 to 2 days, where
+rates and dividends barely matter, consistent with non-synchronous closes.
+It then grows at roughly 50 bp per year, reaching about 30 bp by 0.5 to 1
+year, meaning market-implied carry runs about 0.5% a year above the vendor's.
+Consistent with an option-implied financing rate above the Treasury curve
+(the 19 Apr fit gave 5.48%) and possibly lower implied dividends. Separating
+the two needs the zero curve and dividend data.
+
+Beyond about 1.2 years the fits rest on 5 to 9 strike pairs and break down
+(-33, -193, -222 bp). Wide strike spacing and wide quotes on long-dated
+options.
+
+Decision: use parity forwards as the forward input, since they are
+consistent with the option prices being inverted, while the vendor forward
+drifts with maturity and would bias IV by maturity. Cap maturities at about
+one year in the expiry filter.
